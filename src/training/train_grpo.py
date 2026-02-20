@@ -72,30 +72,21 @@ def train():
     # 4. Load Dataset
     dataset = load_dataset("json", data_files="data/train.json", split="train") 
 
-    # Apply proper tokenizer template to align tokens perfectly
+    # Build plain text prompts and let GRPOTrainer handle tokenization.
+    # Pre-rendering chat templates can append extra assistant control tokens,
+    # which may create token-length mismatches inside GRPO loss masking.
     def format_prompt(example):
-        # 1. Add a system prompt so the model knows it MUST generate the <think> tags itself.
-        #    This is crucial so the tags end up in the 'completion' for the reward functions.
-        messages = [
-            {
-                "role": "system", 
-                "content": "You are a helpful assistant. You must first think about the answer within <think> tags, then provide the final answer within <answer> tags."
-            },
-            {
-                "role": "user", 
-                "content": example["prompt"] # Ensure your JSON has a 'prompt' or 'question' column
-            }
-        ]
-        
-        # 2. Use the tokenizer's native chat template. 
-        #    This guarantees that special tokens like <|im_start|> are mathematically exact.
-        formatted = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True # Appends the proper `<|im_start|>assistant\n`
+        system_instruction = (
+            "You are a helpful assistant. "
+            "You must first think about the answer within <think> tags, "
+            "then provide the final answer within <answer> tags."
         )
-
-        return {"prompt": formatted}
+        prompt_text = (
+            f"System: {system_instruction}\n\n"
+            f"User: {example['prompt']}\n\n"
+            "Assistant:"
+        )
+        return {"prompt": prompt_text}
 
     dataset = dataset.map(format_prompt)
 

@@ -1,0 +1,27 @@
+[project]
+name = "llmtrainer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.129.0",
+    "openai>=2.21.0",
+    "pydantic>=2.12.5",
+    "pyzmq>=27.1.0",
+    "tornado>=6.5.4",
+    "unsloth[colab-new]>=2026.2.1",
+    "uvicorn>=0.41.0",
+    "torch==2.10.0+cu126",
+    "torchvision==0.25.0+cu126",
+]
+
+[tool.uv.sources]
+unsloth = { git = "https://github.com/unslothai/unsloth.git" }
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true

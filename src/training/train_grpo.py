@@ -22,6 +22,8 @@ PatchFastRL("GRPO", FastLanguageModel)
 
 def train():
     max_seq_length = 2048 # Increased for longer reasoning chains (was 1024)
+    max_prompt_length = 768
+    max_completion_length = 512
     lora_rank = 32 # Higher rank = more capacity for reasoning patterns
 
     # 2. Load Model & Tokenizer
@@ -44,10 +46,12 @@ def train():
         model.generation_config.enable_thinking = False
 
     # FIX for GRPO tensor size mismatch error:
-    # `generation_config.max_length` defaults to 40960 for Qwen3, which overrides max_completion_length
+    # If generation relies on `max_length`, generated tokens become
+    # `max_length - prompt_length` (variable). Clamp total length to
+    # max_prompt_length + max_completion_length so completion is never > 512.
     if hasattr(model, "generation_config"):
-        model.generation_config.max_length = 2048 # To be safe (<= max_seq_length)
-        model.generation_config.max_new_tokens = 512 # Same as GRPOConfig max_completion_length
+        model.generation_config.max_new_tokens = max_completion_length
+        model.generation_config.max_length = max_prompt_length + max_completion_length
 
 
     # Left padding is MANDATORY for GRPO generation
@@ -72,30 +76,21 @@ def train():
     # 4. Load Dataset
     dataset = load_dataset("json", data_files="data/train.json", split="train") 
 
-    # Apply proper tokenizer template to align tokens perfectly
+    # Build plain text prompts and let GRPOTrainer handle tokenization.
+    # Pre-rendering chat templates can append extra assistant control tokens,
+    # which may create token-length mismatches inside GRPO loss masking.
     def format_prompt(example):
-        # 1. Add a system prompt so the model knows it MUST generate the <think> tags itself.
-        #    This is crucial so the tags end up in the 'completion' for the reward functions.
-        messages = [
-            {
-                "role": "system", 
-                "content": "You are a helpful assistant. You must first think about the answer within <think> tags, then provide the final answer within <answer> tags."
-            },
-            {
-                "role": "user", 
-                "content": example["prompt"] # Ensure your JSON has a 'prompt' or 'question' column
-            }
-        ]
-        
-        # 2. Use the tokenizer's native chat template. 
-        #    This guarantees that special tokens like <|im_start|> are mathematically exact.
-        formatted = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True # Appends the proper `<|im_start|>assistant\n`
+        system_instruction = (
+            "You are a helpful assistant. "
+            "You must first think about the answer within <think> tags, "
+            "then provide the final answer within <answer> tags."
         )
-
-        return {"prompt": formatted}
+        prompt_text = (
+            f"System: {system_instruction}\n\n"
+            f"User: {example['prompt']}\n\n"
+            "Assistant:"
+        )
+        return {"prompt": prompt_text}
 
     dataset = dataset.map(format_prompt)
 
@@ -115,8 +110,8 @@ def train():
         per_device_train_batch_size = 1,
         gradient_accumulation_steps = 4, 
         num_generations = 6,            
-        max_prompt_length = 768,        
-        max_completion_length = 512,    
+        max_prompt_length = max_prompt_length,
+        max_completion_length = max_completion_length,
         max_steps = 250,
         save_steps = 250,
         max_grad_norm = 0.1,
